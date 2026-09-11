@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Dark theme — default. Near-black surface, off-white text, warm gold accent. */
+  :root,
+  .dark {
+    --background: 0 0% 6%; /* #0f0f0f */
+    --foreground: 40 20% 94%; /* warm off-white */
+    --surface: 0 0% 9%;
+    --surface-raised: 0 0% 13%;
+    --border: 0 0% 18%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 40 8% 62%;
+    --accent: 42 87% 55%; /* warm gold */
+    --accent-foreground: 0 0% 8%;
+    --destructive: 4 70% 55%;
+    --destructive-foreground: 0 0% 98%;
+    --ring: 42 87% 55%;
+  }
+
+  /* Light theme — opt-in via .light on <html> */
+  .light {
+    --background: 40 33% 98%;
+    --foreground: 0 0% 9%;
+    --surface: 0 0% 100%;
+    --surface-raised: 40 20% 96%;
+    --border: 40 10% 88%;
+    --muted: 40 15% 93%;
+    --muted-foreground: 0 0% 40%;
+    --accent: 38 80% 46%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 4 70% 45%;
+    --destructive-foreground: 0 0% 98%;
+    --ring: 38 80% 46%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+  html.light {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer components {
+  .input {
+    @apply rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}

@@ -1,0 +1,505 @@
+// Soundboard — Prisma schema
+// Domain-organized, matches src/lib/<domain> folders.
+// Design notes:
+//  - External catalog IDs (spotifyId) are always separate from our
+//    internal `id` (cuid) — see src/lib/music/provider.ts.
+//  - Composite @@unique constraints prevent duplicate ratings/follows/etc.
+//  - @@index added on hot foreign keys and feed/sort columns.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------------
+// AUTH + USERS
+// ------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  username      String    @unique
+  passwordHash  String? // null when the account is OAuth-only
+  displayName   String?
+  bio           String?   @db.VarChar(500)
+  avatarUrl     String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // OAuth-ready: NextAuth adapter models
+  accounts Account[]
+  sessions Session[]
+
+  favoriteAlbums UserFavoriteAlbum[]
+  favoriteArtists UserFavoriteArtist[]
+
+  ratings       Rating[]
+  reviews       Review[]
+  comments      Comment[]
+  likes         Like[]
+  diaryEntries  DiaryEntry[]
+  lists         MusicList[]
+
+  following     Follow[]      @relation("Following")
+  followers     Follow[]      @relation("Followers")
+  blocking      Block[]       @relation("Blocking")
+  blockedBy     Block[]       @relation("BlockedBy")
+
+  notifications       Notification[] @relation("NotificationRecipient")
+  triggeredNotifications Notification[] @relation("NotificationActor")
+
+  reportsFiled  Report[]      @relation("ReportsFiled")
+  reportsAgainst Report[]     @relation("ReportsAgainst")
+
+  moderationActionsTaken ModerationAction[] @relation("ModerationActor")
+  moderationActionsReceived ModerationAction[] @relation("ModerationTarget")
+
+  passwordResetTokens PasswordResetToken[]
+
+  @@index([username])
+}
+
+model Account {
+  // NextAuth OAuth account link (Google, Apple, etc.) — OAuth-ready
+  // even though Phase 1 ships email/password first.
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ------------------------------------------------------------------
+// MUSIC CATALOG (locally cached mirror of provider data)
+// ------------------------------------------------------------------
+// We persist a thin local copy of whatever a user has actually
+// interacted with (rated, reviewed, logged) so ratings/reviews have
+// stable foreign keys independent of external API uptime. Records
+// are created lazily on first interaction, not bulk-imported.
+
+model Artist {
+  id        String   @id @default(cuid())
+  spotifyId String?  @unique
+  name      String
+  imageUrl  String?
+  bio       String?  @db.Text
+  createdAt DateTime @default(now())
+
+  albums  Album[]
+  genres  ArtistGenre[]
+  favoritedBy UserFavoriteArtist[]
+
+  @@index([name])
+}
+
+model Album {
+  id          String    @id @default(cuid())
+  spotifyId   String?   @unique
+  title       String
+  artistId    String
+  coverImageUrl String?
+  releaseDate DateTime?
+  label       String?
+  createdAt   DateTime  @default(now())
+
+  artist   Artist  @relation(fields: [artistId], references: [id])
+  tracks   Track[]
+  genres   AlbumGenre[]
+  ratings  Rating[]
+  reviews  Review[]
+  diaryEntries DiaryEntry[]
+  listItems ListItem[]
+  favoritedBy UserFavoriteAlbum[]
+
+  @@index([artistId])
+  @@index([title])
+}
+
+model Track {
+  id         String  @id @default(cuid())
+  spotifyId  String? @unique
+  title      String
+  albumId    String?
+  durationMs Int?
+  trackNumber Int?
+  createdAt  DateTime @default(now())
+
+  album   Album?   @relation(fields: [albumId], references: [id])
+  ratings Rating[]
+
+  @@index([albumId])
+}
+
+model Genre {
+  id     String @id @default(cuid())
+  name   String @unique
+
+  albums  AlbumGenre[]
+  artists ArtistGenre[]
+}
+
+model AlbumGenre {
+  albumId String
+  genreId String
+
+  album Album @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  genre Genre @relation(fields: [genreId], references: [id], onDelete: Cascade)
+
+  @@id([albumId, genreId])
+}
+
+model ArtistGenre {
+  artistId String
+  genreId  String
+
+  artist Artist @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  genre  Genre  @relation(fields: [genreId], references: [id], onDelete: Cascade)
+
+  @@id([artistId, genreId])
+}
+
+model UserFavoriteAlbum {
+  userId  String
+  albumId String
+  order   Int    @default(0) // for the ~4-5 "favorite albums" grid, user-ordered
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  album Album @relation(fields: [albumId], references: [id], onDelete: Cascade)
+
+  @@id([userId, albumId])
+}
+
+model UserFavoriteArtist {
+  userId   String
+  artistId String
+  order    Int    @default(0)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  artist Artist @relation(fields: [artistId], references: [id], onDelete: Cascade)
+
+  @@id([userId, artistId])
+}
+
+// ------------------------------------------------------------------
+// RATINGS
+// ------------------------------------------------------------------
+
+model Rating {
+  id        String   @id @default(cuid())
+  userId    String
+  albumId   String?
+  trackId   String?
+  value     Float // 0.5–5.0 in 0.5 increments — enforced in Zod schema, not DB
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  album Album? @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  track Track? @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  // Exactly one of albumId/trackId is set — validated in the service layer.
+  @@unique([userId, albumId])
+  @@unique([userId, trackId])
+  @@index([albumId])
+  @@index([trackId])
+}
+
+// ------------------------------------------------------------------
+// REVIEWS + SOCIAL INTERACTION
+// ------------------------------------------------------------------
+
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  albumId   String
+  rating    Float? // optional star rating attached to the review itself
+  body      String   @db.Text
+  containsSpoilers Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  album Album @relation(fields: [albumId], references: [id], onDelete: Cascade)
+
+  comments Comment[]
+  likes    Like[]
+  reports  Report[]
+
+  @@unique([userId, albumId]) // one review per user per album (edit, don't duplicate)
+  @@index([albumId, createdAt])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  reviewId  String
+  userId    String
+  parentId  String? // self-relation for reply threads
+  body      String   @db.VarChar(1000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  review  Review    @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent  Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies Comment[] @relation("CommentReplies")
+  likes   Like[]
+  reports Report[]
+
+  @@index([reviewId])
+  @@index([parentId])
+}
+
+model Like {
+  id        String   @id @default(cuid())
+  userId    String
+  reviewId  String?
+  commentId String?
+  listId    String?
+  createdAt DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  review  Review?  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  list    MusicList? @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, reviewId])
+  @@unique([userId, commentId])
+  @@unique([userId, listId])
+}
+
+// ------------------------------------------------------------------
+// DIARY / LISTENING ACTIVITY
+// ------------------------------------------------------------------
+
+model DiaryEntry {
+  id           String   @id @default(cuid())
+  userId       String
+  albumId      String
+  listenedOn   DateTime // the date the user logged, distinct from createdAt
+  rating       Float?
+  reviewText   String?  @db.Text
+  isReListen   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  album Album @relation(fields: [albumId], references: [id], onDelete: Cascade)
+
+  @@index([userId, listenedOn])
+  @@index([albumId])
+}
+
+/// Raw listening events, kept separate from DiaryEntry (a curated,
+/// user-authored log entry) so future passive scrobbling / stats
+/// don't force every play into the diary UI.
+model ListeningEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  albumId   String?
+  trackId   String?
+  playedAt  DateTime @default(now())
+  source    String   @default("manual") // "manual" | "import" | future scrobble sources
+
+  @@index([userId, playedAt])
+}
+
+// ------------------------------------------------------------------
+// LISTS
+// ------------------------------------------------------------------
+
+enum ListVisibility {
+  PUBLIC
+  UNLISTED
+  PRIVATE
+}
+
+model MusicList {
+  id          String         @id @default(cuid())
+  userId      String
+  title       String
+  description String?        @db.Text
+  visibility  ListVisibility @default(PUBLIC)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items ListItem[]
+  likes Like[]
+
+  @@index([userId])
+}
+
+model ListItem {
+  id        String   @id @default(cuid())
+  listId    String
+  albumId   String
+  position  Int // drives drag-to-reorder
+  note      String?  @db.VarChar(300)
+  addedAt   DateTime @default(now())
+
+  list  MusicList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  album Album     @relation(fields: [albumId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, albumId])
+  @@index([listId, position])
+}
+
+// ------------------------------------------------------------------
+// SOCIAL GRAPH
+// ------------------------------------------------------------------
+
+model Follow {
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  follower  User @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("Followers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@id([followerId, followingId])
+  @@index([followingId])
+}
+
+model Block {
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  blocker User @relation("Blocking", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("BlockedBy", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@id([blockerId, blockedId])
+}
+
+// ------------------------------------------------------------------
+// NOTIFICATIONS
+// ------------------------------------------------------------------
+
+enum NotificationType {
+  FOLLOW
+  REVIEW_LIKE
+  REVIEW_COMMENT
+  COMMENT_REPLY
+  COMMENT_LIKE
+  LIST_LIKE
+  MENTION
+}
+
+model Notification {
+  id         String           @id @default(cuid())
+  recipientId String
+  actorId    String
+  type       NotificationType
+  reviewId   String?
+  commentId  String?
+  listId     String?
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+
+  recipient User @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor     User @relation("NotificationActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, createdAt])
+  @@index([recipientId, readAt])
+}
+
+// ------------------------------------------------------------------
+// MODERATION
+// ------------------------------------------------------------------
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  HATE_SPEECH
+  SPOILER_UNTAGGED
+  COPYRIGHT
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  ACTIONED
+  DISMISSED
+}
+
+model Report {
+  id          String       @id @default(cuid())
+  reporterId  String
+  targetUserId String?
+  reviewId    String?
+  commentId   String?
+  reason      ReportReason
+  details     String?      @db.Text
+  status      ReportStatus @default(OPEN)
+  createdAt   DateTime     @default(now())
+  resolvedAt  DateTime?
+
+  reporter   User     @relation("ReportsFiled", fields: [reporterId], references: [id], onDelete: Cascade)
+  targetUser User?    @relation("ReportsAgainst", fields: [targetUserId], references: [id], onDelete: Cascade)
+  review     Review?  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  comment    Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  actions ModerationAction[]
+
+  @@index([status, createdAt])
+}
+
+enum ModerationActionType {
+  CONTENT_REMOVED
+  USER_WARNED
+  USER_SUSPENDED
+  USER_BANNED
+  REPORT_DISMISSED
+}
+
+model ModerationAction {
+  id         String               @id @default(cuid())
+  reportId   String?
+  moderatorId String
+  targetUserId String
+  type       ModerationActionType
+  notes      String?              @db.Text
+  createdAt  DateTime             @default(now())
+
+  report     Report? @relation(fields: [reportId], references: [id], onDelete: SetNull)
+  moderator  User    @relation("ModerationActor", fields: [moderatorId], references: [id], onDelete: Cascade)
+  targetUser User    @relation("ModerationTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  @@index([targetUserId])
+}
