@@ -26,3 +26,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Search temporarily unavailable" }, { status: 502 });
   }
 }
+
+//ininni
