@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Sidebar } from "@/components/Sidebar";
 import { MobileNav } from "@/components/MobileNav";
 import { Providers } from "./providers";
-import "./globals.css";
+
 
 export const metadata: Metadata = {
   title: {
@@ -10,7 +10,7 @@ export const metadata: Metadata = {
     template: "%s · Soundboard",
   },
   description:
-    "A social platform for music discovery: rate albums and tracks, write reviews, log your listening, build lists, and follow other listeners.",
+    "A social platform for music discovery: rate albums and tracks, write reviews , log your listening, build lists, and follow  other listeners.",
   openGraph: {
     type: "website",
     siteName: "Soundboard",
