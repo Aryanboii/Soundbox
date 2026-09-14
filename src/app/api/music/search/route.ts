@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     });
   } catch (err) {
     console.error("[music/search] provider error", err);
-    return NextResponse.json({ error: "Search temporarily unavailable" }, { status: 502 });
+    return NextResponse.json({ error: "Search temp unavailable" }, { status: 502 });
   }
 }
 
